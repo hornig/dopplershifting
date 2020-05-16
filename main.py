@@ -13,8 +13,6 @@ for i in range(0, len(data), 2):
     iq.append(data[i+0] + 1j*data[i+1])
 time_b = time.time()
 print(time_b - time_a)
-
-
 del iq
 
 
@@ -22,9 +20,9 @@ del iq
 time_a = time.time()
 window = 2048000
 
-for slice in range(0, int(len(data) // (window * 2)) * window * 2, window * 2):  # the -1 is because the slice could be less than the region we need to cut out for the out. xxx
+for slice in range(0, int(len(data) // (window * 2)) * window * 2, window * 2):
     data_slice = adc_offset + (data[slice: slice + window * 2: 2]) + 1j * (adc_offset + data[slice + 1: slice + window * 2: 2])
-    print(slice, len(data)/2, slice / (len(data)), len(data_slice))
+    print(slice, len(data), slice / (len(data)), len(data_slice))
 
 time_b = time.time()
 print(time_b - time_a)
