@@ -3,6 +3,7 @@ import argparse
 import matplotlib.pyplot as plt
 import time
 from scipy import signal
+from scipy.signal import find_peaks
 from scipy.fftpack import fft, fftshift, ifft
 
 class Waterfall():
@@ -27,10 +28,10 @@ class Waterfall():
 
         self.filename = filename
         self.fs = fs
-        self.save_flag = save_flag
+        self.save_flag = False
+        self.overlap = 0.5
         offset = 44
         data = np.memmap(filename, offset=offset)
-
         T = 1/fs
         iterate = 0 
         adc_offset = -127.5
@@ -38,12 +39,15 @@ class Waterfall():
         chunk = window
         self.total_duration = T*len(data)
         num_chunks = int(len(data)/(chunk*2))
-
-        try:
-            self.specx = np.load("iq_spec.npy")
-            skip=True
-        except:
-            skip=False
+        
+        #Save (not working)
+        skip = False
+        if (self.save_flag == True):
+            try:
+                self.specx = np.load("iq_spec.npy")
+                skip=True
+            except:
+                pass
 
         if(skip == False):
             data_slice = []
@@ -52,13 +56,19 @@ class Waterfall():
             for slice in range(0, int(len(data) // (window * 2)) * window * 2, window*2): 
                 data_slice = adc_offset + (data[slice: slice + window * 2: 2]) + 1j * (adc_offset + data[slice + 1: slice + window * 2: 2])
 
+                data_slice = data_slice*np.hamming(len(data_slice))
                 fft_iq = self.calFFT(data_slice)
-                
+
                 transform, freq = self.calFFTPower(fft_iq, self.fs)
-                
+
                 if slice==0:
+                    # first = transform[:int(self.overlap*window)]
+                    # M_avg = first
                     #pre storing array in mem. 
                     self.specx = np.zeros([num_chunks, 2048000])
+                # else:
+                    #Overlapping:
+                    # M_avg = M_avg + transform[int(self.overlap*window):]
 
                 self.specx[num_chunks-iterate-1] = transform
 
@@ -69,7 +79,7 @@ class Waterfall():
             del data
             time_b = time.time()
 
-            if save_flag==True:
+            if self.save_flag==True:
                 np.save('iq_spec.npy', self.specx)
 
             print('Time:',time_b - time_a)
@@ -115,13 +125,38 @@ class Waterfall():
             ax[n].annotate('Fc',xy=(self.fc[n], 0))
         plt.show()
 
-    def find_signal(self):
-        #Find periodicity of the signal using zero crossing.
-        zero_crosses = np.nonzero(np.diff(self.specx > self.specx.shape[0]/2))
-        plt.hist(zero_crosses)
-        plt.xlabel('Samples')
-        plt.ylabel('Zero Crossings')
+    def find_signal(self, threshold, distance):
+        """Finds the sig peaks with parameters and selects the ones with distance less than 2500(preceding peak-peak) """
+
+        self.threshold = 1.5
+        self.distance = 2500
+
+        fft_vals = self.specx[1]
+        peaks, _ = find_peaks(fft_vals, height=self.threshold*np.mean(fft_vals), distance=100)
+        peaks = peaks[peaks > int(len(fft_vals)/2)]
+
+        sig_peaks = []
+        for n in range(0, len(peaks)):
+            if((peaks[n] - peaks[n-1]) < self.distance):
+                sig_peaks.append(peaks[n])
+
+        fig, ax = plt.subplots(2, 1)
+        fig.suptitle('Signal Detection')
+        ax[0].plot(fft_vals)
+        ax[0].plot(sig_peaks, fft_vals[sig_peaks], "x")
+        ax[0].set_xlabel('Frequency(Hz)')
+        ax[0].set_ylabel('Magnitude (dB)')
+        ax[0].set_title('Single Window FFT')
+
+        ax[1].plot(fft_vals)
+        ax[1].plot(sig_peaks, fft_vals[sig_peaks], "X")
+        ax[1].set_xlim([sig_peaks[0],sig_peaks[len(sig_peaks)-1]])
+        ax[1].set_ylim(bottom=30)
+        ax[1].set_xlabel('Frequency(Hz)')
+        ax[1].set_ylabel('Magnitude (dB)')
+        ax[1].set_title('Single Window FFT- Cropped')
         plt.show()
+
 
 def args():
     parser = argparse.ArgumentParser(description='Reading File')
@@ -137,8 +172,8 @@ if __name__ == '__main__':
 
     w = Waterfall()
     w.run(args_input.f,args_input.save)
-    # w.find_signal()
-    w.plot()
-    w.select_channels([1.05e6, 1.32e6], BW=16e3)    
+    w.find_signal(1.5, 2500)
+    # w.plot()
+    # w.select_channels([1.05e6, 1.32e6], BW=16e3)    
 
 
