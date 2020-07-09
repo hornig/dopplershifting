@@ -11,12 +11,14 @@ class Waterfall():
         self.specx = []
 
     def calFFT(self, sig):
+        # win = np.hanning(len(sig))
+        # sig = sig*win    
         norm_fft = fftshift(fft(sig))
-        abs_fft = np.abs(norm_fft)
+        abs_fft = np.abs(norm_fft)/len(sig)
         return abs_fft
 
     def calFFTPower(self, afft, fs):
-        transform = 10 * np.log10(afft)
+        transform = 10 * np.log10(afft/np.max(afft))
         return transform
 
     def run(self,filename,  fs=2048000, save_flag=False):
@@ -68,7 +70,6 @@ class Waterfall():
             for slice in range(0, int(len(data) // (window * 2)) * window * 2, window*2): 
                 data_slice = adc_offset + (data[slice: slice + window * 2: 2]) + 1j * (adc_offset + data[slice + 1: slice + window * 2: 2])
 
-                # data_slice = data_slice*np.hamming(len(data_slice))
                 fft_iq = self.calFFT(data_slice)
 
                 transform = self.calFFTPower(fft_iq, self.fs)
@@ -123,6 +124,38 @@ class Waterfall():
         plt.ylabel('Time (s)')
         plt.title('Waterfall - Fs:{}kHz Fc:{} Hz'.format(self.fs/1e3, self.fc_middle[0]))
         plt.colorbar()
+        plt.show()
+
+    def full_plot(self, show_signal=False):
+        """Plots the full waterfall and marks signal fc
+        
+        Params: 
+            show_signal: bool
+                Enable to show the signal centre track in the plot
+                default: False
+        """
+    
+        self.show_signal = show_signal
+        lim = [1.03e6, 1.07e6]
+        fig, axs = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4,1]}) # gridspec_kw={'height_ratios': [1]}
+                        
+        fig.suptitle('Waterfall')
+
+        # axs[0].imshow(self.specx[::self.jump], extent=self.leftlim + self.rightlim, origin='lower', aspect='auto')      
+        # axs[0].set_xlim(lim)
+        print(np.std(self.specx[0]))
+        axs[0].plot(self.specx[0])
+        axs[0].axhline(y=40, color='k')
+        axs[0].axhline(y=25, color='r')
+        axs[0].axhline(y=np.std(self.specx[0]), color='g')
+        axs[0].axhline(y=np.mean(self.specx[0]), color='g', linestyle='--')
+        axs[0].axhline(y=np.min(self.specx[0]), color='b', linestyle='-')
+        axs[0].axhline(y=np.max(self.specx[0]), color='yellow', linestyle='-')
+        axs[0].set_xlabel('Frequency(Hz)')
+        axs[0].set_ylabel('Magnitude (dB)')
+        axs[0].legend(['fft','y=40', 'y=25', 'SD','Mean','Min'])
+        # axs[0].set_ylim(bottom=3)
+        # axs[0].set_xlim(lim)
         plt.show()
 
     def select_channels(self, channel_center, BW=16e3, show_signal=False):
@@ -187,6 +220,10 @@ class Waterfall():
         self.fc = 0
         self.fc_track = []
         self.fc_middle = []
+        self.fc_new_middle = np.zeros([83,100])
+        self.fc_new_max = []
+        frame_prev = []
+        frame_now = []
 
         for step in range(self.specx.shape[0]):
             fft_vals = self.specx[step]
@@ -196,85 +233,182 @@ class Waterfall():
             peaks, _ = find_peaks(fft_vals, 
                         height=self.threshold*np.mean(fft_vals),   
                         distance=100, prominence=25)
-            peaks = peaks[peaks > int(len(fft_vals)/2)]
 
-            #Selects meadian peaks
             for n in range(0, len(peaks)):
                 if(np.abs(peaks[n] - peaks[n-1]) < self.distance):
                     sig_peaks.append(peaks[n-1])
-            self.fc_middle.append(np.median(sig_peaks))
 
-            #Selects peaks with max mag 
+            #PMA-2
+            if step==0:
+                frame_prev = sig_peaks
+            else:
+                frame_now = sig_peaks
+                for i in range(len(frame_now)):
+                    try:
+                        # print(step, i, frame_now[i], frame_prev[i], fft_vals[frame_now[i]], np.abs(frame_now[i] - frame_prev[i]))
+                        if  np.abs(frame_now[i] - frame_prev[i]) >= 100:
+                            sig_peaks[i] = 0
+                            pass 
+                    except:
+                        pass
+                frame_prev = frame_now
+
+            # Selects peaks with max mag 
             for j in range(len(fft_vals[sig_peaks])):
-                if (np.max(fft_vals[sig_peaks]) == fft_vals[sig_peaks[j]]):
+                if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
                     self.fc_track.append(sig_peaks[j])
-        
-        #Interpolate and/or curve fitting:
-        # from scipy import optimize
+                    sig_pos = sig_peaks[j]
+            #Selects meadian peaks
+            self.fc_middle.append(np.median(sig_peaks))
+            
+            # #Find SNR:
+            sig_pos = np.arange(sig_pos - 4*2500, sig_pos + 4*2500, 2500)
+            sig_pow = np.sum(fft_vals[sig_pos])
+            fft_vals[sig_pos] = 0
+            noise_pow = np.sum(fft_vals)
+            SNR = 10*np.log10(np.abs(sig_pow)/(np.abs(noise_pow)))
+            print(SNR)
 
-        # def model(x, a, b):
-        #     return int(a)*(x) + b
+        print(len(self.fc_track), self.fc_track)
+        print(self.fc_track)
 
-        # def sigmoid(x, a, b):
-        #     return 1/(1+np.exp(-b*(x-1)))
+        #Convolution
+        from math import pi
+
+        def gauss(n=11,sigma=1):
+            r = range(-int(n/2),int(n/2)+1)
+            return [1 / (sigma * np.sqrt(2*pi)) * np.exp(-float(x)**2/(2*sigma**2)) for x in r]
+      
+        def sigmoid_kernel(n=4):
+            x = np.arange(-int(n/2), int(n/2)+1, 1)
+            y =  (-1/(1 + np.exp(-x)))
+            return  (y - np.mean(y)) / np.std(y)    
+
+        # sigma = np.std(self.fc_middle)
+        # print(sigmoid_kernel())
+        # fc_middle_conv = np.convolve(sigmoid_kernel(), self.fc_middle, mode='valid')
+
+        # print(sigma)
+        # print(len(self.fc_middle))
+        # print(len(fc_middle_conv))
         
-        # params, param_cov = optimize.curve_fit(model, np.asarray(self.fc_middle), self.time_bins)
-        # plt.plot(self.time_bins, model(self.fc_middle, params[0], params[1]))
-        # plt.plot(self.time_bins, self.fc_middle, 'r')
+
+        # plt.plot(self.fc_middle)
+        # plt.plot(fc_middle_conv)
+        # plt.title('1d Kernel - Convolution\n' + 'File: ' + self.filename)
+        # plt.ylabel('Frequency (Hz)')
+        # plt.xlabel('Time (s)')
+        # plt.legend(['Input Signal' ,'gauss Conv'])
         # plt.show()
 
-        #Checking if fc_track follows signal in waterfall
-        for i in range(0, len(self.fc_middle)):
-            if (self.specx[i, int(self.fc_middle[i])]) < 45:
-                self.fc_middle[i] = 0
+        # plt.plot(self.fc_middle)
+        # plt.show()
 
-            if (self.specx[i, int(self.fc_track[i])]) < 50:
-                self.fc_track[i] = 0
+        # self.fc_middle = fc_middle_conv[:len(self.fc_middle)]
+
+        # #Checking if fc_track follows signal in waterfall
+        # for i in range(0, len(self.fc_middle)):
+        #     print(i, np.abs(self.fc_middle[i] - self.fc_middle[i-1]))
+
+        #     if np.abs(self.fc_middle[i-1] - self.fc_middle[i]) > 1e3:
+        #         self.fc_middle[i-1] = 0 
+
+        # for i in range(0, len(self.fc_middle)):
+        #     if (self.specx[i, int(self.fc_middle[i])]) < 45:
+        #         self.fc_middle[i] = 0
+
+        #     if (self.specx[i, int(self.fc_track[i])]) < 50:
+        #         self.fc_track[i] = 0
+
+        # print(self.fc_middle)
 
         #Doppler track
-        delta_freq = []
-        for i in range(len(self.fc_track)):
-            delta_freq.append(self.fc_track[i-1] - self.fc_track[i])
-        if self.draw==True:
-            fig, ax = plt.subplots(2,1)
-            fig.suptitle('Freq and Doppler track')
+        # delta_freq = []
+        # for i in range(len(self.fc_track)):
+        #     delta_freq.append(self.fc_track[i-1] - self.fc_track[i])
+        # if self.draw==True:
+        #     fig, ax = plt.subplots(2,1)
+        #     fig.suptitle('Freq and Doppler track')
 
-            ax[0].plot(self.time_bins, self.fc_track)
-            ax[0].plot(self.time_bins, self.fc_middle)
-            ax[0].set_xlabel('Time (s)')
-            ax[0].set_ylabel('Frequency (khz)')
-            ax[0].set_title('Fc from Max vs Median peaks')
-            ax[0].legend(['Max Peak', 'Median Peaks'])
+        #     ax[0].plot(self.time_bins, self.fc_track)
+        #     ax[0].plot(self.time_bins, self.fc_middle)
+        #     ax[0].set_xlabel('Time (s)')
+        #     ax[0].set_ylabel('Frequency (khz)')
+        #     ax[0].set_title('Fc from Max vs Median peaks')
+        #     ax[0].legend(['Max Peak', 'Median Peaks'])
 
-            ax[1].plot(self.time_bins, delta_freq)
-            ax[1].set_xlabel('Time (s)')
-            ax[1].set_ylabel('Delta Frequency (khz)')    
-            ax[1].set_title('Delta Track')
+        #     ax[1].plot(self.time_bins, delta_freq)
+        #     ax[1].set_xlabel('Time (s)')
+        #     ax[1].set_ylabel('Delta Frequency (khz)')    
+        #     ax[1].set_title('Delta Track')
             
-            plt.show()
-
+        #     plt.show()
+        
         if self.draw==True:
+
+            fig, ax = plt.subplots(3, 1)
+            fig.tight_layout()
+
             index = 0
             fft_vals = self.specx[index]
-            fig, ax = plt.subplots(2, 1)
-            fig.suptitle('Signal Peak Detection')
-
-            ax[0].plot(fft_vals)
-            ax[0].plot(sig_peaks, fft_vals[sig_peaks], "x")
-            ax[0].axvline(self.fc_middle[index], color='r')
+            ax[0].plot(self.specx[index])
+            ax[0].axhline(fft_vals[self.fc_track[index]], color='r')
+            ax[0].axhline(np.mean(fft_vals), color='k')
+            ax[0].axhline(1.2*np.mean(fft_vals), color='k')
+            ax[0].set_title('Signal Level ts=' + str(index))
             ax[0].set_xlabel('Frequency(Hz)')
-            ax[0].set_ylabel('Magnitude (dB)')
-            ax[0].set_title('Single Window FFT')
+            ax[0].set_ylabel('Magnitude (dBFS)')
+            ax[0].legend(['fft', 'Signal Max', 'Mean', 'Signal Floor'])
+            ax[0].set_xlim([0, 2048000])
 
-            ax[1].plot(fft_vals)
-            ax[1].plot(sig_peaks, fft_vals[sig_peaks], "X")
-            ax[1].set_xlim([self.fc_track[index]-2e4,self.fc_track[index]+2e4])
-            ax[1].set_ylim(bottom=30)
-            ax[1].axvline(self.fc_track[index], color='k')
-            ax[1].axvline(self.fc_middle[index], color='r')
+            index = 40
+            fft_vals = self.specx[index]
+            ax[1].plot(self.specx[index])
+            ax[1].axhline(fft_vals[self.fc_track[index]], color='r')
+            ax[1].axhline(np.mean(fft_vals), color='k')
+            ax[1].set_title('Signal Level ts=' + str(index))
             ax[1].set_xlabel('Frequency(Hz)')
-            ax[1].set_ylabel('Magnitude (dB)')
-            ax[1].set_title('Single Window FFT- Cropped')
+            ax[1].set_ylabel('Magnitude (dBFS)')
+            ax[1].legend(['fft', 'Signal Max', 'Mean'])
+            ax[1].set_xlim([0, 2048000])
+
+            index = 80
+            fft_vals = self.specx[index]
+            ax[2].plot(self.specx[index])
+            ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
+            ax[2].axhline(np.mean(fft_vals), color='k')
+            ax[2].set_title('Signal Level ts=' + str(index))
+            ax[2].set_xlabel('Frequency(Hz)\n' +'File: ' + self.filename)
+            ax[2].set_ylabel('Magnitude (dBFS)')
+            ax[2].legend(['fft', 'Signal Max', 'Mean'])
+            ax[2].set_xlim([0, 2048000])
+
+            # ax[0].plot(fft_vals)
+            # ax[0].plot(sig_peaks, fft_vals[sig_peaks], "x")
+            # ax[0].axvline(self.fc_middle[index], color='r')
+            # ax[0].set_xlabel('Frequency(Hz)')
+            # ax[0].set_ylabel('Magnitude (dB)')
+            # ax[0].set_title('Single Window FFT')
+            # ax[0].legend(['fft', 'Sig Max'])
+
+            # ax[1].plot(fft_vals)
+            # # ax[1].plot(sig_peaks, fft_vals[sig_peaks], "X")
+            # # ax[1].set_xlim([self.fc_track[index]-2e4,self.fc_track[index]+2e4])
+            # # ax[1].set_ylim(bottom=30)
+            # # ax[1].axvline(self.fc_track[index], color='k')
+            # ax[1].axhline(fft_vals[self.fc_track[index]], color='r')
+            # # ax[1].axvline(self.fc_middle[index], color='k')
+            # ax[1].set_xlabel('Frequency(Hz)')
+            # ax[1].set_ylabel('Magnitude (dB)')
+            # ax[1].set_title('Single Window FFT ts = 0')
+            # ax[1].legend(['fft', 'Sig Max Lvl'])
+
+            # index = 1
+            # ax[2].plot(self.specx[index])
+            # ax[2].set_ylim(bottom=30)
+            # ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
+            # ax[2].set_title('Single Window FFT ts = ' + str(index))
+            # ax[2].legend(['fft', 'Sig Max Lvl'])
             plt.show()
         
         del fft_vals, sig_peaks
@@ -295,6 +429,7 @@ if __name__ == '__main__':
 
     w.run(args_input.f, save_flag=args_input.save)
     w.find_signal(1.5, 2500, draw=False)
-    w.plot(show_signal=True)
-    w.select_channels([1.05e6, 1.045e6], BW=25e3)    
+    # w.plot(show_signal=True)
+    # w.select_channels([1.05e6, 1.045e6], BW=25e3)    
 
+    # w.full_plot()
