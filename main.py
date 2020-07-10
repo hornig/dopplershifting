@@ -123,6 +123,7 @@ class Waterfall():
         plt.xlabel('Frequency (kHz)\n'+'\nFile:'+ self.filename)
         plt.ylabel('Time (s)')
         plt.title('Waterfall - Fs:{}kHz Fc:{} Hz'.format(self.fs/1e3, self.fc_middle[0]))
+        plt.legend()
         plt.colorbar()
         plt.show()
 
@@ -228,6 +229,7 @@ class Waterfall():
         for step in range(self.specx.shape[0]):
             fft_vals = self.specx[step]
             sig_peaks = []
+            frame_peaks = []
             
             #Detect peaks
             peaks, _ = find_peaks(fft_vals, 
@@ -241,34 +243,44 @@ class Waterfall():
             # #PMA-2
             if step==0:
                 frame_prev = sig_peaks
+                frame_peaks = sig_peaks
+                print(frame_peaks)
             else:
                 frame_now = sig_peaks
                 for i in range(len(frame_now)):
-                    try:
-                        # print(step, i, frame_now[i], frame_prev[i], fft_vals[frame_now[i]], np.abs(frame_now[i] - frame_prev[i]))
-                        if  np.abs(frame_now[i] - frame_prev[i]) >= 100:
-                            sig_peaks[i] = 0
-                            pass 
-                    except:
-                        pass
+                    for j in range(len(frame_prev)):
+                        try:
+                            if  np.abs(frame_now[i] - frame_prev[j]) >= 10 or np.abs(frame_now[i] - frame_prev[j]) <= 20:
+                                print(step, i, frame_now[i], j, frame_prev[i], np.abs(frame_now[i] - frame_prev[j]))    
+                                frame_peaks.append(sig_peaks[i])
+                        except:
+                            pass
                 frame_prev = frame_now
 
+            # # Selects peaks with max mag 
+            # for j in range(len(fft_vals[sig_peaks])):
+            #     if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
+            #         self.fc_track.append(sig_peaks[j])
+            #         sig_pos = sig_peaks[j]
+
             # Selects peaks with max mag 
-            for j in range(len(fft_vals[sig_peaks])):
-                if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
-                    self.fc_track.append(sig_peaks[j])
-                    sig_pos = sig_peaks[j]
+            print(len(frame_peaks))
+            for j in range(len(fft_vals[frame_peaks])):
+                if (fft_vals[frame_peaks[j]] == np.max(fft_vals[frame_peaks])):
+                    self.fc_track.append(frame_peaks[j])
+                    # sig_pos = sig_peaks[j]
+
             #Selects meadian peaks
-            self.fc_middle.append(np.median(sig_peaks))
+            self.fc_middle.append(np.median(frame_peaks))
             
             #Find SNR:
-            sig_pos = np.arange(sig_pos - 4*2500, sig_pos + 4*2500, 2500)
-            sig_pow = np.mean(fft_vals[sig_pos])
-            fft_vals[sig_pos] = 0
-            noise_pow = np.mean(fft_vals)
-            SNR = sig_pow - noise_pow
-            print(SNR)
-
+            # sig_pos = np.arange(sig_pos - 4*2500, sig_pos + 4*2500, 2500)
+            # sig_pow = np.mean(fft_vals[sig_pos])
+            # fft_vals[sig_pos] = 0
+            # noise_pow = np.mean(fft_vals)
+            # SNR = sig_pow - noise_pow
+            # print(SNR)
+            
 
         print(len(self.fc_track), self.fc_track)
 
@@ -429,7 +441,7 @@ if __name__ == '__main__':
 
     w.run(args_input.f, save_flag=args_input.save)
     w.find_signal(1.5, 2500, draw=False)
-    # w.plot(show_signal=True)
+    w.plot(show_signal=True)
     # w.select_channels([1.05e6, 1.045e6], BW=25e3)    
 
     # w.full_plot()
