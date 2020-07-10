@@ -238,7 +238,7 @@ class Waterfall():
                 if(np.abs(peaks[n] - peaks[n-1]) < self.distance):
                     sig_peaks.append(peaks[n-1])
 
-            #PMA-2
+            # #PMA-2
             if step==0:
                 frame_prev = sig_peaks
             else:
@@ -261,16 +261,16 @@ class Waterfall():
             #Selects meadian peaks
             self.fc_middle.append(np.median(sig_peaks))
             
-            # #Find SNR:
+            #Find SNR:
             sig_pos = np.arange(sig_pos - 4*2500, sig_pos + 4*2500, 2500)
-            sig_pow = np.sum(fft_vals[sig_pos])
+            sig_pow = np.mean(fft_vals[sig_pos])
             fft_vals[sig_pos] = 0
-            noise_pow = np.sum(fft_vals)
-            SNR = 10*np.log10(np.abs(sig_pow)/(np.abs(noise_pow)))
+            noise_pow = np.mean(fft_vals)
+            SNR = sig_pow - noise_pow
             print(SNR)
 
+
         print(len(self.fc_track), self.fc_track)
-        print(self.fc_track)
 
         #Convolution
         from math import pi
