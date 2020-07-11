@@ -49,7 +49,7 @@ class Waterfall():
         chunk = self.fs
         data = np.memmap(filename, offset=offset)
         self.total_duration = T*(len(data)/2)
-        num_chunks = int(len(data)/(chunk*2))
+        self.num_chunks = int(len(data)/(chunk*2))
         file_name = 'Spec_'+self.filename.split('.wav')[0]+'.npy'
 
         #Load file if flag set to true
@@ -64,7 +64,7 @@ class Waterfall():
 
         if(skip == False):
             data_slice = []
-            self.specx = np.zeros([num_chunks, 2048000])    
+            self.specx = np.zeros([self.num_chunks, 2048000])    
 
             time_a = time.time()
             for slice in range(0, int(len(data) // (window * 2)) * window * 2, window*2): 
@@ -74,12 +74,12 @@ class Waterfall():
 
                 transform = self.calFFTPower(fft_iq, self.fs)
 
-                self.specx[num_chunks-iterate-1] = transform
+                self.specx[self.num_chunks-iterate-1] = transform
 
                 iterate +=1
 
                 sys.stdout.write("\r")
-                sys.stdout.write("{} %".format(round(((iterate/num_chunks)*100),2)))
+                sys.stdout.write("{} %".format(round(((iterate/self.num_chunks)*100),2)))
                 sys.stdout.flush()
                 
                 del data_slice,transform,fft_iq   
@@ -93,7 +93,7 @@ class Waterfall():
                 print('iq_spec saved.', end=' ')
             print('Time:',round(time_b - time_a),2)
 
-        if num_chunks>100:
+        if self.num_chunks>100:
             self.jump = 5
         else:
             self.jump = 1
@@ -225,6 +225,7 @@ class Waterfall():
         self.fc_new_max = []
         frame_prev = []
         frame_now = []
+        sig_present = []
 
         for step in range(self.specx.shape[0]):
             fft_vals = self.specx[step]
@@ -236,39 +237,67 @@ class Waterfall():
                         height=self.threshold*np.mean(fft_vals),   
                         distance=100, prominence=25)
 
+            peaks = peaks[peaks > int(len(fft_vals)/2)]
+            sig_presence = False
+            peak_counter = 0
             for n in range(0, len(peaks)):
-                if(np.abs(peaks[n] - peaks[n-1]) < self.distance):
-                    sig_peaks.append(peaks[n-1])
+                try:
+                    # print(step, n, peaks[n], sig_presence, peak_counter, file=open("output.txt", "a"))
 
-            # #PMA-2
+                    if(np.abs(peaks[n] - peaks[n-1]) < self.distance 
+                        and np.abs(peaks[n+1] - peaks[n]) < self.distance):
+                        sig_peaks.append(peaks[n])
+
+                        if peak_counter>=9:
+                            sig_presence = True
+                            peak_counter = 0
+                        peak_counter +=1
+                        # print(step, n, peaks[n], sig_presence, peak_counter, file=open("output.txt", "a"))
+                    else:
+                        peak_counter = 0
+                except:
+                    pass
+            
             if step==0:
-                frame_prev = sig_peaks
-                frame_peaks = sig_peaks
-                print(frame_peaks)
-            else:
-                frame_now = sig_peaks
-                for i in range(len(frame_now)):
-                    for j in range(len(frame_prev)):
-                        try:
-                            if  np.abs(frame_now[i] - frame_prev[j]) >= 10 or np.abs(frame_now[i] - frame_prev[j]) <= 20:
-                                print(step, i, frame_now[i], j, frame_prev[i], np.abs(frame_now[i] - frame_prev[j]))    
-                                frame_peaks.append(sig_peaks[i])
-                        except:
-                            pass
-                frame_prev = frame_now
-
-            # # Selects peaks with max mag 
-            # for j in range(len(fft_vals[sig_peaks])):
-            #     if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
-            #         self.fc_track.append(sig_peaks[j])
-            #         sig_pos = sig_peaks[j]
+                peak_zero = peaks
+                sig_zero = sig_peaks
+                
+            if step==int(self.num_chunks/2):
+                peak_mid = peaks
+                sig_mid = sig_peaks
+                
+            # #PMA-2
+            # if step==0:
+            #     frame_prev = sig_peaks
+            #     frame_peaks = sig_peaks
+            #     print(frame_peaks)
+            # else:
+            #     frame_now = sig_peaks
+            #     for i in range(len(frame_now)):
+            #         for j in range(len(frame_prev)):
+            #             try:
+            #                 if  np.abs(frame_now[i] - frame_prev[j]) >= 10 or np.abs(frame_now[i] - frame_prev[j]) <= 20:
+            #                     print(step, i, frame_now[i], j, frame_prev[i], np.abs(frame_now[i] - frame_prev[j]))    
+            #                     frame_peaks.append(sig_peaks[i])
+            #                     i+=1
+            #                     break
+            #             except:
+            #                 pass
+            #     frame_prev = frame_now
 
             # Selects peaks with max mag 
-            print(len(frame_peaks))
-            for j in range(len(fft_vals[frame_peaks])):
-                if (fft_vals[frame_peaks[j]] == np.max(fft_vals[frame_peaks])):
-                    self.fc_track.append(frame_peaks[j])
-                    # sig_pos = sig_peaks[j]
+            for j in range(len(fft_vals[sig_peaks])):
+                if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
+                    self.fc_track.append(sig_peaks[j])
+                    sig_pos = sig_peaks[j]
+
+
+            # # Selects peaks with max mag 
+            # print(len(frame_peaks))
+            # for j in range(len(fft_vals[frame_peaks])):
+            #     if (fft_vals[frame_peaks[j]] == np.max(fft_vals[frame_peaks])):
+            #         self.fc_track.append(frame_peaks[j])
+            #         # sig_pos = sig_peaks[j]
 
             #Selects meadian peaks
             self.fc_middle.append(np.median(frame_peaks))
@@ -281,8 +310,9 @@ class Waterfall():
             # SNR = sig_pow - noise_pow
             # print(SNR)
             
-
-        print(len(self.fc_track), self.fc_track)
+            print(step, sig_presence)
+            sig_present.append(sig_presence)
+        # print(len(self.fc_track), self.fc_track)
 
         #Convolution
         from math import pi
@@ -363,36 +393,43 @@ class Waterfall():
 
             index = 0
             fft_vals = self.specx[index]
-            ax[0].plot(self.specx[index])
+            ax[0].plot(fft_vals)
+            ax[0].plot(peak_zero, fft_vals[peak_zero], "x", color='k')
+            ax[0].plot(sig_zero, fft_vals[sig_zero], "x")
             ax[0].axhline(fft_vals[self.fc_track[index]], color='r')
             ax[0].axhline(np.mean(fft_vals), color='k')
-            ax[0].axhline(1.2*np.mean(fft_vals), color='k')
-            ax[0].set_title('Signal Level ts=' + str(index))
+            ax[0].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
             ax[0].set_xlabel('Frequency(Hz)')
             ax[0].set_ylabel('Magnitude (dBFS)')
-            ax[0].legend(['fft', 'Signal Max', 'Mean', 'Signal Floor'])
+            ax[0].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
             ax[0].set_xlim([0, 2048000])
 
-            index = 40
+            index = int(self.num_chunks/2)
             fft_vals = self.specx[index]
-            ax[1].plot(self.specx[index])
+            ax[1].plot(fft_vals)
+            ax[1].plot(peak_mid, fft_vals[peak_mid], "x", color='k')
+            ax[1].plot(sig_mid, fft_vals[sig_mid], "x")
+            ax[1].axhline(fft_vals[self.fc_track[index]], color='r')
             ax[1].axhline(fft_vals[self.fc_track[index]], color='r')
             ax[1].axhline(np.mean(fft_vals), color='k')
-            ax[1].set_title('Signal Level ts=' + str(index))
+            ax[1].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
             ax[1].set_xlabel('Frequency(Hz)')
             ax[1].set_ylabel('Magnitude (dBFS)')
-            ax[1].legend(['fft', 'Signal Max', 'Mean'])
+            ax[1].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
             ax[1].set_xlim([0, 2048000])
 
-            index = 80
+            index = self.num_chunks - 1
             fft_vals = self.specx[index]
-            ax[2].plot(self.specx[index])
+            ax[2].plot(fft_vals)
+            ax[2].plot(peaks, fft_vals[peaks], "x", color='k')
+            ax[2].plot(sig_peaks, fft_vals[sig_peaks], "x")
+            ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
             ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
             ax[2].axhline(np.mean(fft_vals), color='k')
-            ax[2].set_title('Signal Level ts=' + str(index))
+            ax[2].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
             ax[2].set_xlabel('Frequency(Hz)\n' +'File: ' + self.filename)
             ax[2].set_ylabel('Magnitude (dBFS)')
-            ax[2].legend(['fft', 'Signal Max', 'Mean'])
+            ax[2].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
             ax[2].set_xlim([0, 2048000])
 
             # ax[0].plot(fft_vals)
@@ -432,7 +469,7 @@ def args():
 
     return parser.parse_args()
 
-if __name__ == '__main__':
+if __name__ == '__main__': 
     print("Waterfall Tool")
 
     args_input = args()
@@ -440,8 +477,8 @@ if __name__ == '__main__':
     w = Waterfall()
 
     w.run(args_input.f, save_flag=args_input.save)
-    w.find_signal(1.5, 2500, draw=False)
-    w.plot(show_signal=True)
+    w.find_signal(1.5, 2500, draw=True)
+    # w.plot(show_signal=True)
     # w.select_channels([1.05e6, 1.045e6], BW=25e3)    
 
     # w.full_plot()
