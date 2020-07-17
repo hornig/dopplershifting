@@ -228,46 +228,51 @@ class Waterfall():
         for step in range(self.specx.shape[0]):
             fft_vals = self.specx[step]
             sig_peaks = []
-            
+                
             #Detect peaks
             peaks, _ = find_peaks(fft_vals, 
                         height=self.threshold*np.mean(fft_vals),   
                         distance=100, prominence=25)
 
             peaks = peaks[peaks > int(len(fft_vals)/2)]
-          
+
+
+            
             #find min distance of sig peaks
             min_dist = []
             for n in range(len(peaks)):
                 min_dist.append(np.abs(peaks[n] - peaks[n-1]))
-            count = 0
-            for i in range(len(min_dist)):
-                if (math.isclose(min_dist[i] ,min_dist[i-1], rel_tol=200)):
-                    count +=1
-                    if count > 5:
-                        peak_dist = (min_dist[i]+min_dist[i-1])/2
-                        break
-            
-            #find signal peaks only
-            self.distance = peak_dist*2
+
+            for x in range(len(min_dist)):
+                win = 5
+                win_avg = np.mean(min_dist[x-win:x])
+                local_avg = min_dist[x]/win_avg
+                if (math.isclose(local_avg, 1, rel_tol=1e-3)):
+                    self.distance = min_dist[x]
+                    break
+
             sig_presence = False
             peak_counter = 0
+            self.distance = 2400
             for n in range(0, len(peaks)):
                 try:
-                    if((np.abs(peaks[n] - peaks[n-1]) + np.abs(peaks[n+1] - peaks[n])) >= self.distance and 
-                        (np.abs(peaks[n] - peaks[n-1]) + np.abs(peaks[n+1] - peaks[n])) <= self.distance+500):
-                        sig_peaks.append(peaks[n])
+                    if((np.abs(peaks[n] - peaks[n-1])) >= self.distance-500 and 
+                        (np.abs(peaks[n] - peaks[n-1])) <= self.distance+500):
+                        if((np.abs(peaks[n+1] - peaks[n])) >= self.distance-500 and 
+                            (np.abs(peaks[n+1] - peaks[n])) <= self.distance+500):
+                            sig_peaks.append(peaks[n])
 
-                        if peak_counter>=9:
-                            sig_presence = True
+                            if peak_counter>=9:
+                                sig_presence = True
+                                peak_counter = 0
+                                
+                            peak_counter +=1
+                        else:
                             peak_counter = 0
-                        peak_counter +=1
-                    else:
-                        peak_counter = 0
                 except:
                     pass
             sig_present.append(sig_presence)
-            
+
             if step==0:
                 peak_zero = peaks
                 sig_zero = sig_peaks
@@ -283,13 +288,13 @@ class Waterfall():
                 fft_mags.append(fft_vals[sig_peaks[j]])
                 if (fft_vals[sig_peaks[j]] == np.max(fft_vals[sig_peaks])):
                     self.fc_track.append(sig_peaks[j])
+                    f = sig_peaks[j]
 
             #Selects meadian peak only
             self.fc_middle.append(np.median(sig_peaks))
 
-            # #SNR
+            # # #SNR
             extend = 2
-            f = self.fc_track[step]
             sig_bins = np.arange(f-extend+1, f+extend+2)
             s = np.mean(fft_vals[sig_bins - 1])
             noise_bins = np.arange(1, self.specx.shape[1]+1)
@@ -309,7 +314,7 @@ class Waterfall():
             if len(new_peaks)>0:
                 self.fc_new_max.append(np.max(new_peaks))
 
-        # print(sig_peaks)
+        print(len(self.fc_track))
 
         # print(self.fc_new_max, len(self.fc_new_max))
         # #Checking if fc_track follows signal in waterfall
@@ -363,7 +368,7 @@ class Waterfall():
             ax[0].set_xlabel('Frequency(Hz)')
             ax[0].set_ylabel('Magnitude (dBFS)')
             ax[0].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
-            ax[0].set_xlim([0, 2048000])
+            ax[0].set_xlim([0, self.fs])
 
             index = int(self.num_chunks/2)
             fft_vals = self.specx[index]
@@ -376,7 +381,7 @@ class Waterfall():
             ax[1].set_xlabel('Frequency(Hz)')
             ax[1].set_ylabel('Magnitude (dBFS)')
             ax[1].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
-            ax[1].set_xlim([0, 2048000])
+            ax[1].set_xlim([0, self.fs])
 
             index = self.num_chunks - 1
             fft_vals = self.specx[index]
@@ -384,11 +389,14 @@ class Waterfall():
             ax[2].plot(fft_vals)
             ax[2].plot(peaks, fft_vals[peaks], "x", color='k')
             ax[2].plot(sig_peaks, fft_vals[sig_peaks], "x")
-            ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
+            # ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
+            ax[2].axhline(s, linestyle='-')
+            ax[2].axhline(n, linestyle='-.')
+            ax[2].axhline(n*0.8, linestyle='--', color='k')
             ax[2].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
             ax[2].set_xlabel('Frequency(Hz)\n' +'File: ' + self.filename)
             ax[2].set_ylabel('Magnitude (dBFS)')
-            ax[2].set_xlim([0, 2048000])
+            ax[2].set_xlim([0, self.fs])
             plt.show()
         
         del fft_vals, sig_peaks
