@@ -10,9 +10,7 @@ class Waterfall():
     def __init__(self):
         self.specx = []
 
-    def calFFT(self, sig):
-        # win = np.hanning(len(sig))
-        # sig = sig*win    
+    def calFFT(self, sig):   
         norm_fft = fftshift(fft(sig))
         abs_fft = np.abs(norm_fft)/len(sig)
         return abs_fft
@@ -87,7 +85,7 @@ class Waterfall():
                 print('\nSaving data to disk')
                 np.save(file_name, self.specx)
                 print('iq_spec saved.', end=' ')
-            print('Time:',round(time_b - time_a),2)
+            print('Time:',round(time_b - time_a, 2))
 
         if self.num_chunks>100:
             self.jump = 15
@@ -108,18 +106,18 @@ class Waterfall():
         """
         
         self.show_signal = show_signal
-        plt.figure(figsize=(20,8)) 
+        plt.figure(figsize=(15,8)) 
         plt.imshow(self.specx[::self.jump], extent=self.leftlim + self.rightlim, origin='lower', aspect='auto')
 
-        if self.show_signal==True:
-            for i in range(len(self.fc_track)):
-                plt.plot(self.fc_middle[i], self.time_bins[i], marker='.', color='r')
-                plt.plot(self.fc_track[i], self.time_bins[i], marker='.', color='k')
-
-        plt.xlabel('Frequency (kHz)\n'+'\nFile:'+ self.filename)
+        plt.plot(self.fc_track, self.time_bins, 'k')
+        plt.plot(self.center_twm, self.time_bins, 'r')
+        plt.plot(self.center_sp, self.time_bins, 'lightgray')
+        plt.xlabel('Frequency (kHz)\n'+'\nFile:'+ self.filename + '\nRuntime:' + str(self.t_fs))
         plt.ylabel('Time (s)')
-        plt.title('Waterfall - Fs:{}kHz Fc:{} Hz'.format(self.fs/1e3, self.fc_middle[0]))
+        plt.title('Waterfall - Fs:{} kHz Fc:{} kHz'.format(self.fs//1e3, self.fc_track[0]//1e3))
+        plt.xlim([self.fc_track[0] - 50e3, self.fc_track[0] + 50e3])
         plt.colorbar()
+        plt.savefig('waterfal_plot.png', dpi=400, transparent=False)
         plt.show()
 
     def full_plot(self, show_signal=False):
@@ -132,27 +130,34 @@ class Waterfall():
         """
     
         self.show_signal = show_signal
-        # lim = [1.03e6, 1.07e6]
-        lim = [0, 2048000]
+        lim = [self.fc_track[0] - 50e3, self.fc_track[0] + 50e3]
         fig, axs = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4,1]})
                         
-        fig.suptitle('Waterfall')
         fig.set_size_inches(15,8)
         fig.tight_layout(pad=3)
 
-        axs[0].imshow(self.specx[::self.jump], extent=self.leftlim + self.rightlim, origin='lower', aspect='auto')      
+        im = axs[0].imshow(self.specx[::self.jump], extent=self.leftlim + self.rightlim, origin='lower', aspect='auto')      
+        axs[0].plot(self.fc_track, self.time_bins, 'k')
+        axs[0].plot(self.center_sp, self.time_bins, 'white')
         axs[0].set_xlim(lim)
-        axs[0].set_xlabel('Frequency(Hz)')
+        axs[0].set_xlabel('Frequency(Hz) - white(center), black(max)')
         axs[0].set_ylabel('Magnitude (dBFS)')
-        axs[0].set_title('Spectrogram')
-        
-        axs[1].plot(self.specx[0])
+        axs[0].set_title('Waterfall')
+        fig.colorbar(im, ax=axs[0])
+
+        frame = int(self.num_chunks/2)
+        fft_vals = self.specx[frame]
+        axs[1].plot(fft_vals, 'lightgray')
+        axs[1].plot(self.sp, fft_vals[self.sp]+5, 'k')
+        axs[1].plot(self.sp2, fft_vals[self.sp2]+10, 'c')
+        axs[1].axvline(self.center_sp[frame], color='r')
         axs[1].set_xlim(lim)
-        axs[1].set_ylim([-80,0])
+        axs[1].set_ylim([-55,0])
         axs[1].set_xlabel('Frequency(Hz) \n \n' + 'File: ' + self.filename)
-        axs[1].set_title('FFT Spectrum')
         axs[1].set_ylabel('Magnitude (dBFS)')
-        axs[1].legend(['fft'])
+        axs[1].set_title('FFT Spectrum')
+        axs[1].legend(['fft', 'sig-peaks', 'final-peaks', 'centroid'])
+        plt.savefig('waterfal_full_plot.png', dpi=400, transparent=False)
         plt.show()
 
     def select_channels(self, channel_center, BW=16e3, show_signal=False):
@@ -218,6 +223,10 @@ class Waterfall():
         self.fc_track = []
         self.fc_middle = []
         sig_present = []
+        self.center_twm = []
+        self.center_sp = []
+        SNR = []
+        time_a = time.time()
 
         for step in range(self.specx.shape[0]):
             fft_vals = self.specx[step]
@@ -229,99 +238,104 @@ class Waterfall():
                         distance=100, prominence=25)
 
             peaks = peaks[peaks > int(len(fft_vals)/2)]
+            t_level = np.mean(fft_vals) * 0.8
+            peaks = peaks[fft_vals[peaks] > t_level]
 
-            #find min distance of sig peaks
+            # find min distance of sig peaks
             min_dist = []
             for n in range(len(peaks)):
                 min_dist.append(np.abs(peaks[n] - peaks[n-1]))
 
             for x in range(len(min_dist)):
-                win = 5
+                win =11
                 win_avg = np.mean(min_dist[x-win:x])
                 local_avg = min_dist[x]/win_avg
                 if (math.isclose(local_avg, 1, rel_tol=1e-3)):
                     self.distance = min_dist[x]
                     break
-
+            
             #Find signal peaks 
             sig_presence = False
             peak_counter = 0
-            self.distance = 2500
+            self.distance = 2400
             for n in range(0, len(peaks)):
                 try:
                     if((np.abs(peaks[n] - peaks[n-1])) >= self.distance-500 and 
                         (np.abs(peaks[n] - peaks[n-1])) <= self.distance+500):
-                        if((np.abs(peaks[n+1] - peaks[n])) >= self.distance-500 and 
-                            (np.abs(peaks[n+1] - peaks[n])) <= self.distance+500):
-                            sig_peaks.append(peaks[n])
+                        sig_peaks.append(peaks[n])
 
-                            if peak_counter>=9:
-                                sig_presence = True
-                                peak_counter = 0
-                                
-                            peak_counter +=1
-                        else:
+                        if peak_counter>=10:
+                            sig_presence = True
                             peak_counter = 0
+                            
+                        peak_counter +=1
+                    else:
+                        peak_counter = 0
                 except:
                     pass
             sig_present.append(sig_presence)
 
-            if step==0:
-                peak_zero = peaks
-                sig_zero = sig_peaks
-                
-            if step==int(self.num_chunks/2):
-                peak_mid = peaks
-                sig_mid = sig_peaks
-
             #TWM - Error PM
-            f0_cal, f0_cal_noise = TWM(sig_peaks, fft_vals[sig_peaks], 20, f_cands=np.arange(1.02e6,1.1e6,1.0)) 
-
-            #New SNR
-            s = np.max(fft_vals[f0_cal]-1)
+            if (len(sig_peaks)>0):
+                f_cands = np.arange(np.median(sig_peaks) - 16e3, np.median(sig_peaks) + 16e3, 10)
+                f0_cal, f0_cal_noise, E_PM, E_MP, E_TWM = TWM(sig_peaks, fft_vals[sig_peaks], 20, f_cands)
+            else:
+                f0_cal =[]
+            
+            #SNR
+            s = np.max(fft_vals[sig_peaks]-1)
             noise_bins = np.arange(1, self.specx.shape[1]+1)
-            noise_bins = np.delete(noise_bins, noise_bins[f0_cal-1]-1)
+            noise_bins = np.delete(noise_bins, noise_bins[sig_peaks]-1)
             n = np.mean(fft_vals[noise_bins-1])
-            SNR = (s - n)
-            print(step, s, n, SNR)
+            SNR.append(s - n)
 
             #Selects max and median peaks
-            for i in range(len(f0_cal)):
-                if (fft_vals[f0_cal[i]] == np.max(fft_vals[f0_cal])):
-                    self.fc_track.append(f0_cal[i])           
+            if (len(f0_cal) == 0):
+                self.fc_track.append(np.nan)
+                self.fc_middle.append(np.nan)
+            else: 
+                for i in range(len(f0_cal)):
+                    if (fft_vals[f0_cal[i]] == np.max(fft_vals[f0_cal])):
+                        self.fc_track.append(f0_cal[i])      
+                        temp = f0_cal[i] 
+                self.fc_middle.append(np.median(f0_cal))
+            
+            intensity = (np.mean(fft_vals[sig_peaks])/SNR[step]) + 0.1
+            f_center = []
+            sig_peaks = sig_peaks[:-1]
 
-            self.fc_middle.append(np.median(fft_vals[f0_cal]))
+            for i in range(len(sig_peaks)):
+                if (fft_vals[sig_peaks[i]]/SNR[step] >= intensity):
+                    f_center.append(sig_peaks[i]) 
+                    
+            print(step, SNR[step], len(f_center))
 
-        #print
-        for i in range(len(self.fc_track)):
-            plt.plot(self.fc_middle[i], self.time_bins[i], marker='.', color='r')
-            plt.plot(self.fc_track[i], self.time_bins[i], marker='.', color='k')
-        plt.show()
-        
+            self.center_twm.append(find_center(f0_cal, fft_vals[f0_cal]))
+            if (len(f_center)>0):    
+                self.center_sp.append(find_center(f_center, fft_vals[f_center]))
+            else:
+                self.center_sp.append(self.center_sp[step-1])
+                
+            if step==int(self.num_chunks/2):
+                self.sp = sig_peaks
+                self.sp2 = f_center                
 
-        # Doppler track
-        # delta_freq = []
-        # for i in range(len(self.fc_track)):
-        #     delta_freq.append(self.fc_track[i-1] - self.fc_track[i])
-        # if self.draw==True:
-        #     fig, ax = plt.subplots(2,1)
-        #     fig.suptitle('Freq and Doppler track')
+        time_b = time.time()
+        self.t_fs = round(time_b - time_a, 2)
+        print('Time(find_signal):', self.t_fs)
 
-        #     ax[0].plot(self.time_bins, self.fc_track)
-        #     ax[0].plot(self.time_bins, self.fc_middle)
-        #     ax[0].set_xlabel('Time (s)')
-        #     ax[0].set_ylabel('Frequency (khz)')
-        #     ax[0].set_title('Fc from Max vs Median peaks')
-        #     ax[0].legend(['Max Peak', 'Median Peaks'])
+        from scipy import signal
+        win = int(self.num_chunks*0.2)
+        win = win if win%2>0 else win+1
+        y1 = signal.medfilt(self.fc_track, win)
+        y2 = signal.medfilt(self.center_twm, win)
+        y3 = signal.medfilt(self.center_sp, win)
 
-        #     ax[1].plot(self.time_bins, delta_freq)
-        #     ax[1].set_xlabel('Time (s)')
-        #     ax[1].set_ylabel('Delta Frequency (khz)')    
-        #     ax[1].set_title('Delta Track')
-        #     plt.show()
-        
+        self.fc_track = y1
+        self.center_twm = y2
+        self.center_sp = y3
+
         if self.draw==True:
-
             fig, ax = plt.subplots(3, 1)
             fig.tight_layout()
 
@@ -339,37 +353,17 @@ class Waterfall():
             ax[0].set_ylabel('Magnitude (dBFS)')
             ax[0].legend(['fft', 'peaks', 'sig_peaks', 'Error_PM < 0 - f0', 'Error_PM >0 - noise'])
             ax[0].set_xlim([0, self.fs])
-
-            # index = int(self.num_chunks/2)
-            # fft_vals = self.specx[index]
-            # ax[1].plot(fft_vals)
-            # ax[1].plot(peak_mid, fft_vals[peak_mid], "x", color='k')
-            # ax[1].plot(sig_mid, fft_vals[sig_mid], "x")
-            # ax[1].axhline(fft_vals[self.fc_track[index]], color='r')
-            # ax[1].axhline(np.mean(fft_vals), color='k')
-            # ax[1].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
-            # ax[1].set_xlabel('Frequency(Hz)')
-            # ax[1].set_ylabel('Magnitude (dBFS)')
-            # ax[1].legend(['fft', 'peaks', 'sig_peaks', 'Signal Max'])
-            # ax[1].set_xlim([0, self.fs])
-
-            # index = self.num_chunks - 1
-            # fft_vals = self.specx[index]
-      
-            # ax[2].plot(fft_vals)
-            # ax[2].plot(peaks, fft_vals[peaks], "x", color='k')
-            # ax[2].plot(sig_peaks, fft_vals[sig_peaks], "x")
-            # # ax[2].axhline(fft_vals[self.fc_track[index]], color='r')
-            # ax[2].axhline(s, linestyle='-')
-            # ax[2].axhline(n, linestyle='-.')
-            # ax[2].axhline(n*0.8, linestyle='--', color='k')
-            # ax[2].set_title('Signal Level ts=' + str(index) + ' '+'Sig_Presence: ' + str(sig_present[index]))
-            # ax[2].set_xlabel('Frequency(Hz)\n' +'File: ' + self.filename)
-            # ax[2].set_ylabel('Magnitude (dBFS)')
-            # ax[2].set_xlim([0, self.fs])
             plt.show()
         
         del fft_vals, sig_peaks
+
+def find_center(x, x_mag):
+    """ Find spectral centroid """
+
+    product_sum = np.sum(x * x_mag)
+    mag_sum = np.sum(x_mag)
+
+    return product_sum/mag_sum
 
 def TWM(peaks, pmag, N_peaks, f_cands):
     """Two-Way Mistmatch Algorithm to find the best possible case of `f0`  
@@ -394,14 +388,15 @@ def TWM(peaks, pmag, N_peaks, f_cands):
     p = 0.5
     q = 1.4
     r = 0.4
+    rho = 0.33
     a_max = max(pmag)
     fn = np.matrix(f_cands)
 
     #Error - predicted to Measured
     Error_PM = np.zeros(fn.size) 
-    maxn = min(N_peaks, peaks.size)
-    for i in range(0, maxn):
-        delta_fn = fn.T * np.ones(peaks.size)
+    maxn_pm = min(N_peaks, len(peaks))
+    for i in range(0, maxn_pm):
+        delta_fn = fn.T * np.ones(len(peaks))
         delta_fn = abs(delta_fn - np.ones((fn.size, 1))*peaks)
         delta_fn_final = np.amin(delta_fn, axis=1)
 
@@ -414,13 +409,28 @@ def TWM(peaks, pmag, N_peaks, f_cands):
     f0_cal = f_cands[Error_PM[0] < 0].astype(int)
     f0_cal_noise = f_cands[Error_PM[0] > 0].astype(int)
 
-    # plt.plot(f_cands, Error_PM[0])
-    # plt.ylabel('Error - Predicted->Measured')
-    # plt.xlabel('Freq Candidates')
-    # plt.title('TWM Error_PM')
-    # plt.show()
+    #Error - measured to predicted
+    Error_MP = np.zeros(fn.size)
+    peaks = np.array(peaks)
+    maxn_mp = min(10, peaks.size)
+    new_fcands = np.array(f_cands[Error_PM[0] < 0].astype(int))
 
-    return f0_cal, f0_cal_noise
+    for i in range(0, len(new_fcands)):
+        fn = np.round(peaks[:maxn_mp]/new_fcands[i])
+        fn = (fn >= 1)*fn + (fn < 1)
+        delta_fn_mp = abs(peaks[:maxn_mp] - fn*new_fcands[i])
+
+        product = np.array(delta_fn_mp) * (peaks[:maxn_mp]**(-p))
+        peakmag = pmag[:maxn_mp]
+
+        factor = peak_mag/a_max
+        Error_MP[i] = np.sum(factor * (product + factor*(q*product - r))) 
+
+    #Total Error
+    TWM_Error = (Error_PM[0]/maxn_pm) + (rho * Error_MP/maxn_mp)
+    if len(f0_cal)==0:
+        f0_cal =[]
+    return f0_cal, f0_cal_noise, Error_PM[0], Error_MP, TWM_Error
 
 def progress(now, total):
     sys.stdout.write("\r")
@@ -442,7 +452,7 @@ if __name__ == '__main__':
     w = Waterfall()
 
     w.run(args_input.f, save_flag=args_input.save)
-    w.find_signal(1.5, 2500, draw=True)
-    w.plot(show_signal=True)
-    # w.full_plot()
+    w.find_signal(1.5, 2500, draw=False)
+    # w.plot(show_signal=True)
+    w.full_plot()
     # w.select_channels([1.05e6, 1.045e6], BW=25e3)    
