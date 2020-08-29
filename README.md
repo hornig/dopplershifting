@@ -1,4 +1,4 @@
-# [GSOC 2020| Orbit Determinator] - Tracking Continuous and Sporadic Signal of Sattelites
+# [GSOC 2020| Orbit Determinator] - Tracking Continuous and Sporadic Signals of Sattelites
 
 # Introduction 
 With increasing popularity in CubeSat technologies, it has gotten ever so important to have low-cost systems that complement the economical and self-reliant nature of today’s cubesats providers. One of the most important parts of an end to end small satellite business is ground-based tracking. Satellite tracking provides valuable information on the whereabouts. Satellite tracking industry is booming with the use of large antennas and high power transmitters at cost-prohibitive nature but at the cost of expense and lead time. 
@@ -50,15 +50,15 @@ Json Format:
 filename	:	SDRSharp_20190521_184218Z_137500000Hz_IQ.wav
 sampling rate	:	2048000
 centre frequency	:	137500000
-channel frequency  [n]
-bandwidth		   [n]
-frequency		   [n]
-raw-frequency	   [n]
-time		       [n]
+channel frequency [n]
+bandwidth [n]
+frequency	[n]
+raw-frequency [n]
+time [n]
 ```
 
-| Signal | Channel Frequency | BW | Waterfall | Data |
-| --- | --- | --- | --- | --- | --- |
+| Signal  | ChannelFrequency  | BW  | Waterfall  |  Data |
+|---|---|---|---|---|
 | NOAA -1 | 137.62 Mhz | 32 kHz | [Waterfall](https://i.imgur.com/7YUSvKv.jpg) | [Data](/results/noaa-2019521-data.json) |
 | APRS -1 | 145.825 Mhz | 10 kHz | [Waterfall](https://i.imgur.com/CTGxOq3.png) | [Data](/results/aprs-2019527-data.json) |
 | APRS -2 | 145.825 Mhz | 10 kHz | [Waterfall](https://i.imgur.com/n1DcUQQ.png) | [Data](/results/aprs-2019526-data.json) |
