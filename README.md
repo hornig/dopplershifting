@@ -1,4 +1,4 @@
-# [GSOC 2020| Orbit Determinator] - Tracking Continuous and Sporadic Signals of Sattelites
+# [GSOC 2020| Orbit Determinator] - Tracking Continuous and Sporadic Signals of Satelites
 
 # Introduction 
 With increasing popularity in CubeSat technologies, it has gotten ever so important to have low-cost systems that complement the economical and self-reliant nature of today’s cubesats providers. One of the most important parts of an end to end small satellite business is ground-based tracking. Satellite tracking provides valuable information on the whereabouts. Satellite tracking industry is booming with the use of large antennas and high power transmitters at cost-prohibitive nature but at the cost of expense and lead time. 
